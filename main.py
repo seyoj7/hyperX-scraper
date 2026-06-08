@@ -1,6 +1,7 @@
 import os
 import time
 import random
+import json
 from dotenv import load_dotenv
 from camoufox.sync_api import Camoufox
 
@@ -241,7 +242,9 @@ def main():
             login_to_x(page, credentials)
             
             print(f"Saving login session to {login_session}...")
-            context.storage_state(path=login_session)
+            state = context.storage_state()
+            with open(login_session, 'w', encoding='utf-8') as f:
+                json.dump(state, f, indent=4)
             print("Session saved successfully.")
 
         # --- Open the target profile and scrape recent tweets ---

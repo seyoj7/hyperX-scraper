@@ -2,16 +2,16 @@ import os
 import time
 import random
 import json
+import re
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from camoufox.sync_api import Camoufox
 
-# Global variables for mouse tracking
 CURRENT_MOUSE_X = None
 CURRENT_MOUSE_Y = None
 login_session = "login_session.json"
 
 def load_credentials():
-    """Loads and returns credentials from the environment."""
     load_dotenv()
     return {
         "username": os.getenv("X_USERNAME"),
@@ -20,7 +20,6 @@ def load_credentials():
     }
 
 def human_cursor(page, selector):
-    """Moves the mouse naturally to the element and clicks it."""
     global CURRENT_MOUSE_X, CURRENT_MOUSE_Y
     
     print(f"Looking for element: {selector}...")
@@ -31,13 +30,11 @@ def human_cursor(page, selector):
         print("Could not find the position of the element.")
         return
 
-    # Calculate the center of the element, adding a little randomness
     x = box["x"] + (box["width"] / 2) + random.uniform(-5, 5)
     y = box["y"] + (box["height"] / 2) + random.uniform(-5, 5)
     
     print(f"Moving mouse naturally to X: {x:.2f}, Y: {y:.2f}...")
     
-    # Start from where the mouse currently is
     if CURRENT_MOUSE_X is None:
         CURRENT_MOUSE_X = random.randint(10, 500)
         CURRENT_MOUSE_Y = random.randint(10, 500)
@@ -46,28 +43,23 @@ def human_cursor(page, selector):
     start_x = CURRENT_MOUSE_X
     start_y = CURRENT_MOUSE_Y
     
-    # Pick a "control point" to bend our line into a curve
     control_x = (start_x + x) / 2 + random.uniform(-100, 100)
     control_y = (start_y + y) / 2 + random.uniform(-100, 100)
     
     steps = random.randint(45, 75)
     for i in range(steps):
         t = i / steps
-        # Easing function (ease-out): starts fast, slows down near the end
         ease_t = 1 - (1 - t) * (1 - t)
         
-        # Quadratic Bezier Curve formula
         curve_x = (1 - ease_t)**2 * start_x + 2 * (1 - ease_t) * ease_t * control_x + ease_t**2 * x
         curve_y = (1 - ease_t)**2 * start_y + 2 * (1 - ease_t) * ease_t * control_y + ease_t**2 * y
         
         page.mouse.move(curve_x, curve_y)
         time.sleep(random.uniform(0.002, 0.008))
         
-    # Update global mouse position
     CURRENT_MOUSE_X = x
     CURRENT_MOUSE_Y = y
         
-    # Pause briefly before clicking, like a human would
     time.sleep(random.uniform(0.2, 0.5))
     
     print("Clicking the element...")
@@ -75,27 +67,22 @@ def human_cursor(page, selector):
     time.sleep(random.uniform(0.05, 0.15))
     page.mouse.up()
     
-    # Force focus just to be 100% sure the cursor is in the box for typing
     element.focus()
     time.sleep(random.uniform(1.0, 2.0))
 
 def human_type(page, text):
-    """Types text character by character with random human-like delays."""
     print(f"Typing text naturally...")
     for char in text:
         page.keyboard.type(char)
         
-        # Normal keystroke delay (between 50ms and 250ms)
         delay = random.uniform(0.10, 0.25)
         
-        # 10% chance the human pauses slightly longer
         if random.random() < 0.10:
             delay += random.uniform(0.2, 0.5)
             
         time.sleep(delay)
 
 def apply_anti_crash_script(page):
-    """Injects a script to suppress uncaught page errors to prevent Playwright crashes."""
     page.add_init_script("""
         window.addEventListener('error', function(e) {
             e.stopImmediatePropagation();
@@ -106,7 +93,6 @@ def apply_anti_crash_script(page):
     """)
 
 def login_to_x(page, credentials):
-    """Executes the login workflow for X."""
     if "login" not in page.url and "onboarding" not in page.url:
         page.goto(
             "https://x.com/i/jf/onboarding/web?mode=login",
@@ -116,7 +102,6 @@ def login_to_x(page, credentials):
         print("URL:", page.url)
         time.sleep(5)
 
-    # --- Username ---
     human_cursor(page, 'input[name="username_or_email"]')
     if credentials["username"]:
         human_type(page, credentials["username"])
@@ -127,7 +112,6 @@ def login_to_x(page, credentials):
     print("Pressing Enter to continue...")
     page.keyboard.press("Enter")
     
-    # --- Password ---
     time.sleep(3)
     human_cursor(page, 'input[name="password"]')
     if credentials["password"]:
@@ -146,7 +130,6 @@ def login_to_x(page, credentials):
         print(f"Wait for home page timed out or failed: {e}")
 
 def check_login_status(page):
-    """Check if the session is already logged in."""
     if os.path.exists(login_session):
         print(f"Found {login_session}. Opening https://x.com/home ...")
         page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
@@ -161,7 +144,6 @@ def check_login_status(page):
     return False
 
 def open_x_profile(page, username):
-    """Navigates to a given X (Twitter) user's profile page."""
     username = username.strip().lstrip("@")
     profile_url = f"https://x.com/{username}"
     print(f"\nNavigating to profile: {profile_url} ...")
@@ -170,42 +152,36 @@ def open_x_profile(page, username):
     print(f"Profile page loaded: {page.url}")
 
 def scrape_recent_tweet_links(page, count=5):
-    """
-    Scrapes the most recent tweet links from the currently open X profile page.
-    Returns a list of full tweet URLs (up to `count` links).
-    """
     print(f"\nScraping the {count} most recent tweet links...")
 
-    # Scroll slightly to trigger lazy-loaded content
     page.evaluate("window.scrollBy(0, 400)")
     time.sleep(random.uniform(1.5, 2.5))
 
-    # Wait for tweet article elements to appear
     try:
         page.wait_for_selector('article[data-testid="tweet"]', timeout=15000)
     except Exception:
         print("Could not find any tweet articles on the page.")
         return []
 
-    # Grab all <a> hrefs that look like tweet permalinks (/status/)
-    tweet_links = page.evaluate(r"""
-        () => {
-            const anchors = Array.from(document.querySelectorAll('a[href*="/status/"]'));
-            const seen = new Set();
-            const links = [];
-            for (const a of anchors) {
-                const href = a.href;
-                // Only keep clean permalink-style links (no query params / photo / video sub-pages)
-                if (/\/status\/\d+$/.test(href) && !seen.has(href)) {
-                    seen.add(href);
-                    links.push(href);
-                }
-            }
-            return links;
-        }
-    """)
+    html_content = page.content()
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    seen = set()
+    recent_links = []
+    
+    for a in soup.find_all('a', href=True):
+        href = a['href']
+        if re.search(r'/status/\d+$', href):
+            if href.startswith('/'):
+                full_url = f"https://x.com{href}"
+            else:
+                full_url = href
+            
+            if full_url not in seen:
+                seen.add(full_url)
+                recent_links.append(full_url)
 
-    recent_links = tweet_links[:count]
+    recent_links = recent_links[:count]
 
     if recent_links:
         print(f"\nFound {len(recent_links)} tweet link(s):")
@@ -217,17 +193,15 @@ def scrape_recent_tweet_links(page, count=5):
     return recent_links
 
 def main():
-    """Main execution function."""
     credentials = load_credentials()
 
-    # --- Prompt user for the target X username ---
     username = input("\nEnter the X (Twitter) username to visit (e.g. elonmusk): ").strip()
     if not username:
         print("No username provided. Exiting.")
         return
 
     with Camoufox(headless=False) as browser:
-        context_kwargs = {"viewport": {"width": 1920, "height": 1080}}
+        context_kwargs = {"no_viewport": True}
         if os.path.exists(login_session):
             print(f"Found {login_session}, loading session...")
             context_kwargs["storage_state"] = login_session
@@ -238,7 +212,6 @@ def main():
         apply_anti_crash_script(page)
         
         if not check_login_status(page):
-            # Run the automation flow
             login_to_x(page, credentials)
             
             print(f"Saving login session to {login_session}...")
@@ -247,7 +220,6 @@ def main():
                 json.dump(state, f, indent=4)
             print("Session saved successfully.")
 
-        # --- Open the target profile and scrape recent tweets ---
         open_x_profile(page, username)
         tweet_links = scrape_recent_tweet_links(page, count=5)
 
@@ -255,7 +227,6 @@ def main():
         if tweet_links:
             print(f"Collected {len(tweet_links)} tweet link(s) from @{username.lstrip('@')}.")
         
-        # Keep the browser open briefly so the user can review
         time.sleep(5)
 
 if __name__ == "__main__":

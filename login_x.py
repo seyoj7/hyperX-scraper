@@ -159,4 +159,3 @@ def perform_login(credentials):
             json.dump(state, f, indent=4)
         print("Session saved successfully.")
         time.sleep(2)
-

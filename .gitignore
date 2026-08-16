@@ -1,2 +1,3 @@
 /login_session.json
-/.env
+.env
+/__pycache__

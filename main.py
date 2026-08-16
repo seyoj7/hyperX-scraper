@@ -1,195 +1,142 @@
 import os
 import time
-import random
 import json
-import re
-from bs4 import BeautifulSoup
+import urllib.parse
+import requests
 from dotenv import load_dotenv
 from camoufox.sync_api import Camoufox
 
-CURRENT_MOUSE_X = None
-CURRENT_MOUSE_Y = None
-login_session = "login_session.json"
+from login_x import (
+    login_session,
+    load_credentials,
+    apply_anti_crash_script,
+    login_to_x
+)
 
-def load_credentials():
+def get_graphql_headers():
+    with open(login_session, 'r', encoding='utf-8') as f:
+        d = json.load(f)
+        cookies = {c['name']: c['value'] for c in d.get('cookies', [])}
+    
+    ct0 = cookies.get('ct0', '')
     load_dotenv()
-    return {
-        "username": os.getenv("X_USERNAME"),
-        "password": os.getenv("X_PASSWORD"),
-        "email": os.getenv("X_EMAIL")
+    bearer_token = os.getenv('X_BEARER_TOKEN')
+    
+    headers = {
+        'authorization': bearer_token,
+        'x-csrf-token': ct0,
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'x-twitter-active-user': 'yes',
+        'x-twitter-client-language': 'en'
     }
+    return headers, cookies
 
-def human_cursor(page, selector):
-    global CURRENT_MOUSE_X, CURRENT_MOUSE_Y
+def fetch_recent_tweet_links(username, count=5):
+    print(f"\nFetching profile and recent tweets for @{username} via GraphQL...")
+    headers, cookies = get_graphql_headers()
     
-    print(f"Looking for element: {selector}...")
-    element = page.wait_for_selector(selector, state="visible")
-    box = element.bounding_box()
+    variables = {"screen_name": username, "withSafetyModeUserFields": True}
+    features = {"hidden_profile_likes_enabled": True, "hidden_profile_subscriptions_enabled": True, "responsive_web_graphql_exclude_directive_enabled": True, "verified_phone_label_enabled": False, "subscriptions_verification_info_is_identity_verified_enabled": True, "subscriptions_verification_info_verified_since_enabled": True, "highlights_tweets_tab_ui_enabled": True, "creator_subscriptions_tweet_preview_api_enabled": True, "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False, "responsive_web_graphql_timeline_navigation_enabled": True}
     
-    if not box:
-        print("Could not find the position of the element.")
-        return
-
-    x = box["x"] + (box["width"] / 2) + random.uniform(-5, 5)
-    y = box["y"] + (box["height"] / 2) + random.uniform(-5, 5)
+    url = f"https://x.com/i/api/graphql/Gb-d6r0vxPOADdG62OEBpQ/UserByScreenName?variables={urllib.parse.quote(json.dumps(variables))}&features={urllib.parse.quote(json.dumps(features))}"
     
-    print(f"Moving mouse naturally to X: {x:.2f}, Y: {y:.2f}...")
-    
-    if CURRENT_MOUSE_X is None:
-        CURRENT_MOUSE_X = random.randint(10, 500)
-        CURRENT_MOUSE_Y = random.randint(10, 500)
-        page.mouse.move(CURRENT_MOUSE_X, CURRENT_MOUSE_Y)
+    res = requests.get(url, headers=headers, cookies=cookies)
+    if res.status_code != 200:
+        print("Failed to get user profile. The session might be expired or the username is invalid.")
+        return []
         
-    start_x = CURRENT_MOUSE_X
-    start_y = CURRENT_MOUSE_Y
-    
-    control_x = (start_x + x) / 2 + random.uniform(-100, 100)
-    control_y = (start_y + y) / 2 + random.uniform(-100, 100)
-    
-    steps = random.randint(45, 75)
-    for i in range(steps):
-        t = i / steps
-        ease_t = 1 - (1 - t) * (1 - t)
-        
-        curve_x = (1 - ease_t)**2 * start_x + 2 * (1 - ease_t) * ease_t * control_x + ease_t**2 * x
-        curve_y = (1 - ease_t)**2 * start_y + 2 * (1 - ease_t) * ease_t * control_y + ease_t**2 * y
-        
-        page.mouse.move(curve_x, curve_y)
-        time.sleep(random.uniform(0.002, 0.008))
-        
-    CURRENT_MOUSE_X = x
-    CURRENT_MOUSE_Y = y
-        
-    time.sleep(random.uniform(0.2, 0.5))
-    
-    print("Clicking the element...")
-    page.mouse.down()
-    time.sleep(random.uniform(0.05, 0.15))
-    page.mouse.up()
-    
-    element.focus()
-    time.sleep(random.uniform(1.0, 2.0))
-
-def human_type(page, text):
-    print(f"Typing text naturally...")
-    for char in text:
-        page.keyboard.type(char)
-        
-        delay = random.uniform(0.10, 0.25)
-        
-        if random.random() < 0.10:
-            delay += random.uniform(0.2, 0.5)
-            
-        time.sleep(delay)
-
-def apply_anti_crash_script(page):
-    page.add_init_script("""
-        window.addEventListener('error', function(e) {
-            e.stopImmediatePropagation();
-        }, true);
-        window.addEventListener('unhandledrejection', function(e) {
-            e.stopImmediatePropagation();
-        }, true);
-    """)
-
-def login_to_x(page, credentials):
-    if "login" not in page.url and "onboarding" not in page.url:
-        page.goto(
-            "https://x.com/i/jf/onboarding/web?mode=login",
-            wait_until="domcontentloaded",
-            timeout=60000
-        )
-        print("URL:", page.url)
-        time.sleep(5)
-
-    human_cursor(page, 'input[name="username_or_email"]')
-    if credentials["username"]:
-        human_type(page, credentials["username"])
-    else:
-        print("Warning: X_USERNAME is not set in the .env file!")
-        
-    time.sleep(1)
-    print("Pressing Enter to continue...")
-    page.keyboard.press("Enter")
-    
-    time.sleep(3)
-    human_cursor(page, 'input[name="password"]')
-    if credentials["password"]:
-        human_type(page, credentials["password"])
-    else:
-        print("Warning: X_PASSWORD is not set in the .env file!")
-
-    print("Pressing Enter to continue...")
-    page.keyboard.press("Enter")
-
-    print("Waiting for login to complete...")
+    data = res.json()
     try:
-        page.wait_for_url("https://x.com/home", timeout=60000)
-        print("Login successful!")
-    except Exception as e:
-        print(f"Wait for home page timed out or failed: {e}")
-
-def check_login_status(page):
-    if os.path.exists(login_session):
-        print(f"Found {login_session}. Opening https://x.com/home ...")
-        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-        time.sleep(4)
-        if "login" not in page.url and "onboarding" not in page.url:
-            print("Already logged in. Skipping login process.")
-            return True
-        print("Session invalid or expired. Proceeding to login...")
-        return False
-        
-    print(f"No {login_session} found. Proceeding to login...")
-    return False
-
-def open_x_profile(page, username):
-    username = username.strip().lstrip("@")
-    profile_url = f"https://x.com/{username}"
-    print(f"\nNavigating to profile: {profile_url} ...")
-    page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
-    time.sleep(random.uniform(2.5, 4.0))
-    print(f"Profile page loaded: {page.url}")
-
-def scrape_recent_tweet_links(page, count=5):
-    print(f"\nScraping the {count} most recent tweet links...")
-
-    page.evaluate("window.scrollBy(0, 400)")
-    time.sleep(random.uniform(1.5, 2.5))
-
-    try:
-        page.wait_for_selector('article[data-testid="tweet"]', timeout=15000)
-    except Exception:
-        print("Could not find any tweet articles on the page.")
+        rest_id = data['data']['user']['result']['rest_id']
+    except (KeyError, TypeError):
+        print("User not found.")
         return []
 
-    html_content = page.content()
-    soup = BeautifulSoup(html_content, 'html.parser')
+    variables_tweets = {
+        "userId": rest_id,
+        "count": count,
+        "includePromotedContent": True,
+        "withQuickPromoteEligibilityTweetFields": True,
+        "withVoice": True,
+        "withV2Timeline": True
+    }
+    features_tweets = {
+        "rweb_tipjar_consumption_enabled": True,
+        "responsive_web_graphql_exclude_directive_enabled": True,
+        "verified_phone_label_enabled": False,
+        "creator_subscriptions_tweet_preview_api_enabled": True,
+        "responsive_web_graphql_timeline_navigation_enabled": True,
+        "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+        "communities_web_enable_tweet_community_results_fetch": True,
+        "c9s_tweet_anatomy_moderator_badge_enabled": True,
+        "articles_preview_enabled": True,
+        "tweetypie_unmention_optimization_enabled": True,
+        "responsive_web_edit_tweet_api_enabled": True,
+        "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+        "view_counts_everywhere_api_enabled": True,
+        "longform_notetweets_consumption_enabled": True,
+        "responsive_web_twitter_article_tweet_consumption_enabled": True,
+        "tweet_awards_web_tipping_enabled": False,
+        "creator_subscriptions_quote_tweet_preview_enabled": False,
+        "freedom_of_speech_not_reach_fetch_enabled": True,
+        "standardized_nudges_misinfo": True,
+        "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+        "rweb_video_timestamps_enabled": True,
+        "longform_notetweets_rich_text_read_enabled": True,
+        "longform_notetweets_inline_media_enabled": True,
+        "responsive_web_enhance_cards_enabled": False
+    }
+
+    url_tweets = f"https://x.com/i/api/graphql/SXVCYB8XHSS25nzIljNtZA/UserTweets?variables={urllib.parse.quote(json.dumps(variables_tweets))}&features={urllib.parse.quote(json.dumps(features_tweets))}"
     
-    seen = set()
-    recent_links = []
-    
-    for a in soup.find_all('a', href=True):
-        href = a['href']
-        if re.search(r'/status/\d+$', href):
-            if href.startswith('/'):
-                full_url = f"https://x.com{href}"
-            else:
-                full_url = href
+    res = requests.get(url_tweets, headers=headers, cookies=cookies)
+    if res.status_code != 200:
+        print("Failed to get tweets.")
+        return []
+
+    data = res.json()
+    links = []
+    try:
+        user_result = data['data']['user']['result']
+        if 'timeline_v2' in user_result:
+            instructions = user_result['timeline_v2']['timeline']['instructions']
+        else:
+            instructions = user_result['timeline']['timeline']['instructions']
             
-            if full_url not in seen:
-                seen.add(full_url)
-                recent_links.append(full_url)
+        for inst in instructions:
+            if inst['type'] == 'TimelineAddEntries':
+                for entry in inst['entries']:
+                    if entry['entryId'].startswith('tweet-'):
+                        try:
+                            itemContent = entry['content']['itemContent']
+                            tweet_results = itemContent.get('tweet_results', {}).get('result', {})
+                            
+                            # Handle TweetWithVisibilityResults wrapper
+                            if tweet_results.get('__typename') == 'TweetWithVisibilityResults':
+                                tweet_results = tweet_results.get('tweet', {})
+                                
+                            t_rest_id = tweet_results.get('rest_id')
+                            user_result = tweet_results.get('core', {}).get('user_results', {}).get('result', {})
+                            
+                            screen_name = user_result.get('legacy', {}).get('screen_name')
+                            if not screen_name:
+                                screen_name = user_result.get('core', {}).get('screen_name')
+                                
+                            if t_rest_id and screen_name:
+                                links.append(f"https://x.com/{screen_name}/status/{t_rest_id}")
+                        except (KeyError, TypeError):
+                            continue
+    except (KeyError, TypeError) as e:
+        pass
 
-    recent_links = recent_links[:count]
-
+    recent_links = links[:count]
     if recent_links:
         print(f"\nFound {len(recent_links)} tweet link(s):")
         for i, link in enumerate(recent_links, 1):
             print(f"  {i}. {link}")
     else:
-        print("No tweet links found. The profile may be protected or the page didn't load correctly.")
-
+        print("No tweet links found.")
+        
     return recent_links
 
 def main():
@@ -200,18 +147,32 @@ def main():
         print("No username provided. Exiting.")
         return
 
-    with Camoufox(headless=False) as browser:
-        context_kwargs = {"no_viewport": True}
-        if os.path.exists(login_session):
-            print(f"Found {login_session}, loading session...")
-            context_kwargs["storage_state"] = login_session
+    needs_login = True
+    if os.path.exists(login_session):
+        try:
+            headers, cookies = get_graphql_headers()
+            variables = {"screen_name": "elonmusk", "withSafetyModeUserFields": True}
+            features = {"hidden_profile_likes_enabled": True, "hidden_profile_subscriptions_enabled": True, "responsive_web_graphql_exclude_directive_enabled": True, "verified_phone_label_enabled": False, "subscriptions_verification_info_is_identity_verified_enabled": True, "subscriptions_verification_info_verified_since_enabled": True, "highlights_tweets_tab_ui_enabled": True, "creator_subscriptions_tweet_preview_api_enabled": True, "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False, "responsive_web_graphql_timeline_navigation_enabled": True}
+            url = f"https://x.com/i/api/graphql/Gb-d6r0vxPOADdG62OEBpQ/UserByScreenName?variables={urllib.parse.quote(json.dumps(variables))}&features={urllib.parse.quote(json.dumps(features))}"
+            res = requests.get(url, headers=headers, cookies=cookies)
+            if res.status_code == 200:
+                needs_login = False
+                print("Already logged in. Skipping login process.")
+            else:
+                print("Session invalid or expired. Proceeding to login...")
+        except Exception as e:
+            print("Session invalid or expired. Proceeding to login...")
 
-        context = browser.new_context(**context_kwargs)
-        page = context.new_page()
+    if needs_login:
+        with Camoufox(headless=False) as browser:
+            context_kwargs = {"no_viewport": True}
+            if os.path.exists(login_session):
+                context_kwargs["storage_state"] = login_session
 
-        apply_anti_crash_script(page)
-        
-        if not check_login_status(page):
+            context = browser.new_context(**context_kwargs)
+            page = context.new_page()
+
+            apply_anti_crash_script(page)
             login_to_x(page, credentials)
             
             print(f"Saving login session to {login_session}...")
@@ -219,15 +180,13 @@ def main():
             with open(login_session, 'w', encoding='utf-8') as f:
                 json.dump(state, f, indent=4)
             print("Session saved successfully.")
+            time.sleep(2)
 
-        open_x_profile(page, username)
-        tweet_links = scrape_recent_tweet_links(page, count=5)
+    tweet_links = fetch_recent_tweet_links(username, count=5)
 
-        print("\n--- Scraping complete ---")
-        if tweet_links:
-            print(f"Collected {len(tweet_links)} tweet link(s) from @{username.lstrip('@')}.")
-        
-        time.sleep(5)
+    print("\n--- Scraping complete ---")
+    if tweet_links:
+        print(f"Collected {len(tweet_links)} tweet link(s) from @{username.lstrip('@')}.")
 
 if __name__ == "__main__":
     main()

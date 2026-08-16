@@ -1,3 +1,4 @@
 /login_session.json
 .env
 /__pycache__
+/test/test_gql_fetch.py

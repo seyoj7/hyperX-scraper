@@ -3,6 +3,7 @@ import time
 import random
 import json
 from dotenv import load_dotenv
+from camoufox.sync_api import Camoufox
 
 CURRENT_MOUSE_X = None
 CURRENT_MOUSE_Y = None
@@ -139,3 +140,23 @@ def check_login_status(page):
         
     print(f"No {login_session} found. Proceeding to login...")
     return False
+
+def perform_login(credentials):
+    with Camoufox(headless=False) as browser:
+        context_kwargs = {"no_viewport": True}
+        if os.path.exists(login_session):
+            context_kwargs["storage_state"] = login_session
+
+        context = browser.new_context(**context_kwargs)
+        page = context.new_page()
+
+        apply_anti_crash_script(page)
+        login_to_x(page, credentials)
+        
+        print(f"Saving login session to {login_session}...")
+        state = context.storage_state()
+        with open(login_session, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=4)
+        print("Session saved successfully.")
+        time.sleep(2)
+

@@ -1,6 +1,6 @@
-# X-Scraper
+# HyperX-Scraper
 
-X-Scraper is a Python-based scraping tool designed to extract tweets, profile data, and quoted tweets from X (formerly Twitter) without relying on the official developer API. 
+HyperX-Scraper is a Python-based scraping tool designed to extract tweets, profile data, and quoted tweets from X (formerly Twitter) without relying on the official developer API. 
 
 ## How It Bypasses X Protections (The "Nitter" Approach)
 

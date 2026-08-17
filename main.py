@@ -1,4 +1,6 @@
 import os
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
 import time
 import json
 import urllib.parse
@@ -92,7 +94,7 @@ def fetch_recent_tweet_links(username, count=5):
         return []
 
     data = res.json()
-    links = []
+    posts = []
     try:
         user_result = data['data']['user']['result']
         if 'timeline_v2' in user_result:
@@ -115,26 +117,47 @@ def fetch_recent_tweet_links(username, count=5):
                             t_rest_id = tweet_results.get('rest_id')
                             user_result = tweet_results.get('core', {}).get('user_results', {}).get('result', {})
                             
+                            legacy = tweet_results.get('legacy', {})
                             screen_name = user_result.get('legacy', {}).get('screen_name')
                             if not screen_name:
                                 screen_name = user_result.get('core', {}).get('screen_name')
                                 
+                            full_text = legacy.get('full_text', '')
+                            
+                            # Check for a quoted tweet link
+                            quote_url = legacy.get('quoted_status_permalink', {}).get('expanded_url')
+                            if not quote_url:
+                                quoted_status = tweet_results.get('quoted_status_result', {}).get('result', {})
+                                if quoted_status:
+                                    q_rest_id = quoted_status.get('rest_id')
+                                    q_screen_name = quoted_status.get('core', {}).get('user_results', {}).get('result', {}).get('legacy', {}).get('screen_name')
+                                    if not q_screen_name:
+                                        q_screen_name = quoted_status.get('core', {}).get('user_results', {}).get('result', {}).get('core', {}).get('screen_name')
+                                    if q_rest_id and q_screen_name:
+                                        quote_url = f"https://x.com/{q_screen_name}/status/{q_rest_id}"
+                                        
+                            if quote_url:
+                                full_text += f"\n[Quoted: {quote_url}]"
+                                
                             if t_rest_id and screen_name:
-                                links.append(f"https://x.com/{screen_name}/status/{t_rest_id}")
+                                posts.append({
+                                    "url": f"https://x.com/{screen_name}/status/{t_rest_id}",
+                                    "text": full_text
+                                })
                         except (KeyError, TypeError):
                             continue
     except (KeyError, TypeError) as e:
         pass
 
-    recent_links = links[:count]
-    if recent_links:
-        print(f"\nFound {len(recent_links)} tweet link(s):")
-        for i, link in enumerate(recent_links, 1):
-            print(f"  {i}. {link}")
+    if posts:
+        print(f"\nFound {len(posts)} tweet(s) in this single request:")
+        for i, post in enumerate(posts, 1):
+            print(f"\n[{i}] URL: {post['url']}")
+            print(f"Text:\n{post['text']}")
     else:
-        print("No tweet links found.")
+        print("No tweets found.")
         
-    return recent_links
+    return posts
 
 def main():
     credentials = load_credentials()

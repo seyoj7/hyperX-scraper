@@ -142,7 +142,7 @@ def check_login_status(page):
     return False
 
 def perform_login(credentials):
-    with Camoufox(headless=False) as browser:
+    with Camoufox(headless=True) as browser:
         context_kwargs = {"no_viewport": True}
         if os.path.exists(login_session):
             context_kwargs["storage_state"] = login_session

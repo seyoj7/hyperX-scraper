@@ -46,7 +46,19 @@ def fetch_recent_tweet_links(username, count=5):
         
     data = res.json()
     try:
-        rest_id = data['data']['user']['result']['rest_id']
+        user_result = data['data']['user']['result']
+        rest_id = user_result['rest_id']
+        
+        relationship_counts = user_result.get('relationship_counts', {})
+        followers_count = relationship_counts.get('followers')
+        following_count = relationship_counts.get('following')
+        
+        if followers_count is None and following_count is None:
+            legacy = user_result.get('legacy', {})
+            followers_count = legacy.get('followers_count', 0)
+            following_count = legacy.get('friends_count', 0)
+            
+        print(f"Followers: {followers_count} | Following: {following_count}")
     except (KeyError, TypeError):
         print("User not found.")
         return []
@@ -124,6 +136,10 @@ def fetch_recent_tweet_links(username, count=5):
                                 
                             full_text = legacy.get('full_text', '')
                             
+                            is_retweet = 'retweeted_status_result' in legacy or full_text.startswith('RT @')
+                            if is_retweet and not full_text.startswith('[Retweet]'):
+                                full_text = f"[Retweet] {full_text}"
+                            
                             # Check for a quoted tweet link
                             quote_url = legacy.get('quoted_status_permalink', {}).get('expanded_url')
                             if not quote_url:
@@ -142,7 +158,8 @@ def fetch_recent_tweet_links(username, count=5):
                             if t_rest_id and screen_name:
                                 posts.append({
                                     "url": f"https://x.com/{screen_name}/status/{t_rest_id}",
-                                    "text": full_text
+                                    "text": full_text,
+                                    "is_retweet": is_retweet
                                 })
                         except (KeyError, TypeError):
                             continue

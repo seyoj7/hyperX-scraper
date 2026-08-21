@@ -24,7 +24,7 @@ def get_graphql_headers():
     headers = {
         'authorization': bearer_token,
         'x-csrf-token': ct0,
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
         'x-twitter-active-user': 'yes',
         'x-twitter-client-language': 'en'
     }

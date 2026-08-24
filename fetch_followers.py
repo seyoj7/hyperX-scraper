@@ -34,10 +34,14 @@ def get_v1_headers():
     return headers, cookies
 
 
-def fetch_list_v1(username, list_type, headers, cookies, count=20):
+def fetch_list_v1(username, list_type, headers, cookies, max_total=None, per_page=200):
     """
-    Fetch the followers or following list for a given username using the v1.1 API.
+    Fetch the followers or following list for a given username using the v1.1 API
+    with cursor-based pagination.
+    
     list_type should be "Followers" or "Following".
+    max_total: Maximum number of users to fetch. None = fetch all.
+    per_page: Users per API request (max 200 for v1.1).
     """
     
     # Map to the correct v1.1 endpoint
@@ -50,27 +54,59 @@ def fetch_list_v1(username, list_type, headers, cookies, count=20):
         print("Invalid list type. Use 'Followers' or 'Following'.")
         return []
 
-    url = f"https://api.twitter.com/1.1/{endpoint}?screen_name={urllib.parse.quote(username)}&count={count}"
-    
-    res = requests.get(url, headers=headers, cookies=cookies)
-    if res.status_code != 200:
-        print(f"Failed to get {list_type} for @{username}. Status code: {res.status_code}")
-        print(res.text)
-        return []
+    # Clamp per_page to the API maximum of 200
+    per_page = min(per_page, 200)
 
-    data = res.json()
     extracted_users = []
-    
-    try:
-        users = data.get('users', [])
-        for u in users:
-            extracted_users.append({
-                "screen_name": u.get('screen_name'),
-                "name": u.get('name'),
-                "description": u.get('description', '')
-            })
-    except (KeyError, TypeError) as e:
-        print(f"Error parsing response for {list_type}.")
+    cursor = -1  # -1 is the starting cursor for the first page
+    page = 0
+
+    while cursor != 0:
+        page += 1
+        # If we have a max_total, only request what we still need
+        request_count = per_page
+        if max_total is not None:
+            remaining = max_total - len(extracted_users)
+            if remaining <= 0:
+                break
+            request_count = min(per_page, remaining)
+
+        url = (
+            f"https://api.twitter.com/1.1/{endpoint}"
+            f"?screen_name={urllib.parse.quote(username)}"
+            f"&count={request_count}"
+            f"&cursor={cursor}"
+        )
+        
+        res = requests.get(url, headers=headers, cookies=cookies)
+        if res.status_code != 200:
+            print(f"Failed to get {list_type} for @{username}. Status code: {res.status_code}")
+            print(res.text)
+            break
+
+        data = res.json()
+        
+        try:
+            users = data.get('users', [])
+            if not users:
+                break
+            for u in users:
+                extracted_users.append({
+                    "screen_name": u.get('screen_name'),
+                    "name": u.get('name'),
+                    "description": u.get('description', '')
+                })
+            print(f"  Page {page}: fetched {len(users)} users (total so far: {len(extracted_users)})")
+        except (KeyError, TypeError) as e:
+            print(f"Error parsing response for {list_type}: {e}")
+            break
+
+        # Advance to the next page using the cursor
+        cursor = data.get('next_cursor', 0)
+
+        # Stop if we've reached our target
+        if max_total is not None and len(extracted_users) >= max_total:
+            break
         
     return extracted_users
 
@@ -83,17 +119,21 @@ def main():
     if not username:
         print("No username provided. Exiting.")
         return
+
+    max_input = input("Max users to fetch per list (press Enter for all): ").strip()
+    max_total = int(max_input) if max_input else None
+    label = f"up to {max_total}" if max_total else "all"
         
     # Fetch Followers
-    print(f"\nFetching up to 20 followers for @{username} using v1.1 API...")
-    followers = fetch_list_v1(username, "Followers", headers, cookies, count=20)
+    print(f"\nFetching {label} followers for @{username} using v1.1 API...")
+    followers = fetch_list_v1(username, "Followers", headers, cookies, max_total=max_total)
     print(f"--- Retrieved {len(followers)} followers ---")
     for i, user in enumerate(followers, 1):
         print(f"[{i}] @{user['screen_name']} ({user['name']})")
         
     # Fetch Following
-    print(f"\nFetching up to 20 followings for @{username} using v1.1 API...")
-    following = fetch_list_v1(username, "Following", headers, cookies, count=20)
+    print(f"\nFetching {label} following for @{username} using v1.1 API...")
+    following = fetch_list_v1(username, "Following", headers, cookies, max_total=max_total)
     print(f"--- Retrieved {len(following)} following ---")
     for i, user in enumerate(following, 1):
         print(f"[{i}] @{user['screen_name']} ({user['name']})")

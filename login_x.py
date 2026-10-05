@@ -2,6 +2,7 @@ import os
 import time
 import random
 import json
+from typing import Any, cast
 from dotenv import load_dotenv
 from camoufox.sync_api import Camoufox
 
@@ -37,6 +38,9 @@ def human_cursor(page, selector):
         CURRENT_MOUSE_X = random.randint(10, 500)
         CURRENT_MOUSE_Y = random.randint(10, 500)
         page.mouse.move(CURRENT_MOUSE_X, CURRENT_MOUSE_Y)
+
+    # Both coordinates are initialized together above.
+    assert CURRENT_MOUSE_X is not None and CURRENT_MOUSE_Y is not None
         
     start_x = CURRENT_MOUSE_X
     start_y = CURRENT_MOUSE_Y
@@ -143,11 +147,14 @@ def check_login_status(page):
 
 def perform_login(credentials):
     with Camoufox(headless=True) as browser:
-        context_kwargs = {"no_viewport": True}
+        browser_api = cast(Any, browser)
         if os.path.exists(login_session):
-            context_kwargs["storage_state"] = login_session
-
-        context = browser.new_context(**context_kwargs)
+            context = browser_api.new_context(
+                no_viewport=True,
+                storage_state=login_session,
+            )
+        else:
+            context = browser_api.new_context(no_viewport=True)
         page = context.new_page()
 
         apply_anti_crash_script(page)

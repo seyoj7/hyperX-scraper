@@ -1,6 +1,5 @@
 import os
 import sys
-sys.stdout.reconfigure(encoding='utf-8')
 import time
 import json
 import urllib.parse
@@ -11,6 +10,10 @@ from login_x import (
     load_credentials,
     perform_login
 )
+
+stdout_reconfigure = getattr(sys.stdout, "reconfigure", None)
+if stdout_reconfigure is not None:
+    stdout_reconfigure(encoding="utf-8")
 
 def get_graphql_headers():
     with open(login_session, 'r', encoding='utf-8') as f:

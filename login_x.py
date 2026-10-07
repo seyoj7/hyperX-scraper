@@ -146,7 +146,7 @@ def check_login_status(page):
     return False
 
 def perform_login(credentials):
-    with Camoufox(headless=True) as browser:
+    with Camoufox(headless=False) as browser:
         browser_api = cast(Any, browser)
         if os.path.exists(login_session):
             context = browser_api.new_context(
